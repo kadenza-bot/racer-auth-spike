@@ -38,7 +38,7 @@
 		["q5.api", "Q5", "Storage Access API present; hasStorageAccess()"],
 		["q5.request", "Q5", "requestStorageAccess() from a tap in the iframe"],
 	];
-	var HOST_JS = "host.2";
+	var HOST_JS = "host.3";
 	var VALUE_MAX = 400;
 	var CODE = { pass: "P", fail: "F", unsupported: "U", pending: "-", info: "I" };
 
@@ -55,6 +55,8 @@
 	var hello = null;
 	var popupWin = null;
 	var popupReported = false;
+	// Set once this load has direct evidence that the iframe shares top-level localStorage; later checks never undo it.
+	var q2Shared = null;
 
 	function set(id, status, value) {
 		results[id] = { s: status, v: value == null ? "" : String(value), r: runs };
@@ -93,8 +95,13 @@
 		iframe.contentWindow.postMessage(msg, KZ);
 	}
 
+	function markShared(why) {
+		q2Shared = why;
+		set("q2.vsTop", "fail", "shared: " + why);
+	}
+
 	function evalQ2() {
-		if (!hello) return;
+		if (!hello || q2Shared) return;
 		var known = S.lsGet(K.knownSeed);
 		if (hello.lsErr) {
 			set("q2.vsTop", "fail", "iframe localStorage unavailable: " + hello.lsErr);
@@ -165,7 +172,10 @@
 		set("q4." + where + ".topStorage", d.seed ? "pass" : "fail",
 			d.seed ? "top-level seed " + d.seed : "popup sees no seed: seed on the Kadenza page first");
 		if (hello && d.topIframeId && d.topIframeId === hello.iframeId) {
-			set("q2.vsTop", "fail", "shared: top level holds the iframe's id " + d.topIframeId);
+			markShared("top level holds the iframe's id " + d.topIframeId);
+		} else if (d.seedNow) {
+			// The popup wrote or read the seed at top level; the iframe now reads it from its own localStorage.
+			markShared("iframe reads the top-level seed " + d.seedNow + " after the popup");
 		} else {
 			evalQ2();
 		}
@@ -185,7 +195,11 @@
 		if (!fromIframe) return;
 		if (d.type === "hello") onHello(d);
 		else if (d.type === "pong") set("q3.hostToIframe", "pass", "round trip " + (Date.now() - d.t) + " ms");
-		else if (d.type === "bc") set("q2.bc", "info", "delivered: storage NOT partitioned for BroadcastChannel (" + JSON.stringify(d.data) + ")");
+		else if (d.type === "bc") {
+			set("q2.bc", "info", "delivered: BroadcastChannel NOT partitioned (" + JSON.stringify(d.data) + "); iframe localStorage seed now: " +
+				(d.seedNow || "none"));
+			if (d.seedNow) markShared("iframe reads the top-level seed " + d.seedNow + " after the popup");
+		}
 		else if (d.type === "cleared") set("host.ls", hostLsErr ? "fail" : "pass", "reset; iframe cleared " + d.n + " keys");
 		else if (d.type === "popup-to-iframe") {
 			if (d.stored) S.lsSet(K.handedToken, d.token);

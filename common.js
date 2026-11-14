@@ -43,7 +43,7 @@
 		else if ((v = m(ua, /Firefox\/(\d+)/))) { browser = "Firefox"; ver = v; }
 		else if ((v = m(ua, /CriOS\/(\d+)/))) { browser = "Chrome iOS"; ver = v; }
 		else if ((v = m(ua, /OPR\/(\d+)/))) { browser = "Opera"; ver = v; }
-		else if (os === "Android" && /; wv\)/.test(ua)) { browser = "Android WebView"; ver = m(ua, /Chrome\/(\d+)/); }
+		else if (os === "Android" && (/; wv\)/.test(ua) || /Version\/4\.0 .*Chrome\//.test(ua))) { browser = "Android WebView"; ver = m(ua, /Chrome\/(\d+)/); }
 		else if ((v = m(ua, /Chrome\/(\d+)/))) { browser = "Chrome"; ver = v; }
 		else if ((v = m(ua, /Version\/(\d+(?:\.\d+)?).*Safari/))) { browser = "Safari"; ver = v; }
 		else if (os === "iOS") { browser = "WKWebView"; }
