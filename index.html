@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Organizer site (racer auth spike)</title>
+<link rel="stylesheet" href="spike.css">
+<script src="config.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<span class="side host">ORGANIZER SITE · host page</span>
+<h1>Racer auth spike</h1>
+<p class="small" id="env"></p>
+
+<button id="popup">Open Kadenza popup</button>
+<button id="reload" class="secondary">Reload page</button>
+<button id="copy">Copy results</button>
+
+<h2>Kadenza iframe (green box)</h2>
+<div class="box" id="frameBox"></div>
+
+<h2>Results</h2>
+<p class="small">Results build up across reloads in this browser. "run" is the page load that set the row.</p>
+<table>
+	<thead><tr><th>Q</th><th>Check</th><th>Result</th><th>Raw</th><th>run</th></tr></thead>
+	<tbody id="results"></tbody>
+</table>
+
+<h2>Results line</h2>
+<textarea id="line" readonly></textarea>
+<p class="small" id="copyStatus"></p>
+
+<p><button id="reset" class="danger">Reset all spike data in this browser</button></p>
+<p class="small" id="ua"></p>
+
+<script src="host.js"></script>
+</body>
+</html>
