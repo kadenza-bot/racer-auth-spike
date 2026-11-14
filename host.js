@@ -9,6 +9,7 @@
 		results: "spike:host:results",
 		runs: "spike:host:runs",
 		lastIframeId: "spike:host:lastIframeId",
+		helloRuns: "spike:host:helloRuns",
 		knownSeed: "spike:host:knownSeed",
 		handedToken: "spike:host:handedToken",
 		session: "spike:host:session",
@@ -37,6 +38,8 @@
 		["q5.api", "Q5", "Storage Access API present; hasStorageAccess()"],
 		["q5.request", "Q5", "requestStorageAccess() from a tap in the iframe"],
 	];
+	var HOST_JS = "host.2";
+	var VALUE_MAX = 400;
 	var CODE = { pass: "P", fail: "F", unsupported: "U", pending: "-", info: "I" };
 
 	var env = S.env();
@@ -69,11 +72,12 @@
 	}
 
 	function clean(v) {
-		return String(v).replace(/[|;\n]/g, " ").slice(0, 90);
+		return String(v).replace(/[|;\n]/g, " ").slice(0, VALUE_MAX);
 	}
 
 	function line() {
-		var parts = ["KZSPIKE " + C.version, clean(env.label), "runs=" + runs];
+		var parts = ["KZSPIKE " + C.version + " " + HOST_JS, clean(env.label), "runs=" + runs,
+			"helloRuns=" + (S.lsGet(K.helloRuns) || 0)];
 		ROWS.forEach(function (row) {
 			if (row[0] === "env") return;
 			var r = results[row[0]];
@@ -109,12 +113,19 @@
 		toIframe({ type: "ping", t: Date.now() });
 
 		// Q1: the iframe keeps a random id in its own localStorage; the host remembers the last one it saw.
+		// Only loads that got a hello count: a load whose iframe failed (503, blocked) leaves nothing to compare.
+		var helloRuns = Number(S.lsGet(K.helloRuns) || 0) + 1;
+		S.lsSet(K.helloRuns, String(helloRuns));
 		var prev = S.lsGet(K.lastIframeId);
 		var q1 = sameSession ? "q1.reload" : "q1.newSession";
 		if (d.lsErr) {
 			set("q1.reload", "fail", "iframe localStorage unavailable: " + d.lsErr);
+		} else if (!prev && !d.idCreated && d.visitsBefore > 0) {
+			// The host has no record, but the iframe found its own id from an earlier load.
+			set(q1, "pass", "iframe kept id " + d.iframeId + " (iframe visits before: " + d.visitsBefore + "; host had no earlier id)");
 		} else if (!prev) {
-			set("q1.reload", "pending", runs === 1 ? "first load: reload the page" : "host storage was also empty (run " + runs + ")");
+			set("q1.reload", "pending", "first load that reached the iframe (page load " + runs + ", loads with a hello: " +
+				helloRuns + "): reload the page");
 		} else if (prev === d.iframeId) {
 			set(q1, "pass", "same id " + d.iframeId + " (iframe visits before: " + d.visitsBefore + ")");
 		} else {
