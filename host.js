@@ -10,6 +10,7 @@
 		runs: "spike:host:runs",
 		lastIframeId: "spike:host:lastIframeId",
 		helloRuns: "spike:host:helloRuns",
+		ckIframe: "spike:host:ckIframe",
 		knownSeed: "spike:host:knownSeed",
 		handedToken: "spike:host:handedToken",
 		session: "spike:host:session",
@@ -37,8 +38,15 @@
 		["q4.iframe.topStorage", "Q4", "That popup reads Kadenza top-level storage"],
 		["q5.api", "Q5", "Storage Access API present; hasStorageAccess()"],
 		["q5.request", "Q5", "requestStorageAccess() from a tap in the iframe"],
+		["ck.enabled", "C", "navigator.cookieEnabled (host / iframe)"],
+		["ck.topToIframe", "C(a)", "Cookie set at Kadenza top level is sent to the iframe"],
+		["ck.iframeSet", "C", "Cookie set by the iframe is sent back to the iframe"],
+		["ck.iframeToTop", "C(b)", "Cookie set by the iframe is seen at Kadenza top level"],
+		["ck.reload", "C(c)", "Iframe's cookie survives a reload"],
+		["ck.newSession", "C(c)", "Iframe's cookie survives closing the browser or app"],
+		["ck.afterSaa", "C", "Cookies the iframe sees after a Storage Access grant"],
 	];
-	var HOST_JS = "host.3";
+	var HOST_JS = "host.4";
 	var VALUE_MAX = 400;
 	var CODE = { pass: "P", fail: "F", unsupported: "U", pending: "-", info: "I" };
 
@@ -207,6 +215,8 @@
 			if (d.stored) set("q1.siteSession", "pending", "token handed in; reload the page to check it is kept");
 		} else if (d.type === "iframe-popup") onIframePopup(d);
 		else if (d.type === "saa") onSaa(d);
+		else if (d.type === "ck") onCookies(d);
+		else if (d.type === "ck-set") onCookieSet(d);
 	});
 
 	function onIframePopup(d) {
@@ -223,6 +233,71 @@
 		}
 	}
 
+	// Cookie probe (S3-0c). kzs: SameSite=None; kzp: the same plus Partitioned; kzb: top level's ack of the kzs it saw.
+	// Values start with "top." (set at Kadenza top level) or "if." (set by the iframe).
+	function ckRemembered() {
+		try { return JSON.parse(S.lsGet(K.ckIframe) || "null"); } catch (e) { return null; }
+	}
+
+	function notPassed(id) {
+		return !results[id] || results[id].s !== "pass";
+	}
+
+	function onCookies(d) {
+		set("ck.enabled", "info", "host " + navigator.cookieEnabled + " / iframe " + d.cookieEnabled);
+		if (d.err || !d.read) {
+			set("ck.topToIframe", "fail", "read failed: " + (d.err || "no data"));
+			return;
+		}
+		var c = d.read;
+		var raw = "kzs=" + (c.kzs || "-") + " kzp=" + (c.kzp || "-") + " kzb=" + (c.kzb || "-");
+		if (c.kzs && c.kzs.indexOf("top.") === 0) {
+			set("ck.topToIframe", "pass", "shared: iframe gets the top-level cookie; " + raw);
+		} else if (c.kzs && c.kzs.indexOf("if.") === 0) {
+			if (notPassed("ck.topToIframe")) {
+				set("ck.topToIframe", "pending", "iframe sees its own earlier cookie; tap Set on the Kadenza page and reload to test; " + raw);
+			}
+		} else if (notPassed("ck.topToIframe")) {
+			set("ck.topToIframe", "fail", "iframe gets no kzs (blocked or partitioned, or not set on the Kadenza page); " + raw);
+		}
+
+		var mem = ckRemembered();
+		if (!mem) return;
+		if (mem.kzs && c.kzb && c.kzb === mem.kzs) {
+			set("ck.iframeToTop", "pass", "top level acked the iframe's cookie " + c.kzb);
+		} else if (mem.kzs && notPassed("ck.iframeToTop")) {
+			set("ck.iframeToTop", "pending", "no ack visible here; open the Kadenza page from the iframe link, then reload this page" +
+				(c.kzb ? " (kzb " + c.kzb + ")" : ""));
+		}
+		var row = sameSession ? "ck.reload" : "ck.newSession";
+		var kzsKept = !!mem.kzs && c.kzs === mem.kzs;
+		var kzpKept = !!mem.kzp && c.kzp === mem.kzp;
+		if (kzsKept || kzpKept) {
+			set(row, "pass", "kzs " + (kzsKept ? "kept" : "lost") + ", kzp " + (kzpKept ? "kept" : "lost") + "; " + raw);
+		} else if (mem.kzs && c.kzs && c.kzs.indexOf("top.") === 0) {
+			set(row, "pending", "kzs replaced by a newer top-level set; kzp " + (kzpKept ? "kept" : "lost") + "; " + raw);
+		} else {
+			set(row, "fail", "both lost; remembered kzs=" + (mem.kzs || "-") + " kzp=" + (mem.kzp || "-") + "; " + raw);
+		}
+	}
+
+	function onCookieSet(d) {
+		if (d.err) return set("ck.iframeSet", "fail", "set failed: " + d.err);
+		var rb = d.readBack || {};
+		var kzsOk = rb.kzs === d.kzs;
+		var kzpOk = rb.kzp === d.kzp;
+		// Remember only what the iframe can read back; that is what reload and restart must keep.
+		S.lsSet(K.ckIframe, JSON.stringify({ kzs: kzsOk ? d.kzs : null, kzp: kzpOk ? d.kzp : null }));
+		set("ck.iframeSet", kzsOk || kzpOk ? "pass" : "fail",
+			"kzs " + (kzsOk ? "kept " + d.kzs : "dropped") + ", kzp (Partitioned) " + (kzpOk ? "kept " + d.kzp : "dropped"));
+		if (kzsOk || kzpOk) {
+			set("ck.reload", "pending", "reload the page");
+			set("ck.newSession", "pending", "close the browser or app, reopen this page");
+		}
+		if (kzsOk) set("ck.iframeToTop", "pending", "tap the iframe's link to open the Kadenza page, then come back and reload");
+		else set("ck.iframeToTop", "unsupported", "the iframe could not keep kzs");
+	}
+
 	function onSaa(d) {
 		if (!d.supported) return set("q5.request", "unsupported", "no requestStorageAccess");
 		if (!d.granted) return set("q5.request", "fail", "rejected: " + d.err);
@@ -231,6 +306,9 @@
 			"granted; handle.localStorage=" + d.handle + " seedViaHandle=" + (d.seedViaHandle || "none") +
 			" seedViaWindow=" + (d.seedViaWindow || "none") + " seedCookie=" + (d.seedCookie || "none") +
 			" hasStorageAccess()=" + d.hasNow);
+		if (d.ckAfter) {
+			set("ck.afterSaa", "info", "kzs=" + (d.ckAfter.kzs || "-") + " kzp=" + (d.ckAfter.kzp || "-") + " kzb=" + (d.ckAfter.kzb || "-"));
+		}
 	}
 
 	document.getElementById("popup").onclick = function () {
